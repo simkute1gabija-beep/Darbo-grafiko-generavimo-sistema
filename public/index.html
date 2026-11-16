@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="lt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Darbo grafikas</title>
+
+  <style>
+    body {
+      margin: 0;
+      background: #f4f6f8;
+      color: #24313d;
+      font-family: Arial, sans-serif;
+    }
+
+    header {
+      padding: 18px;
+      background: linear-gradient(90deg, #244653, #332946);
+      color: white;
+      text-align: center;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+    }
+
+    main {
+      max-width: 1050px;
+      margin: 24px auto;
+      padding: 0 16px;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    h2 {
+      margin: 0;
+    }
+
+    button {
+      padding: 8px 12px;
+      border: 0;
+      border-radius: 5px;
+      background: #2b5364;
+      color: white;
+      cursor: pointer;
+    }
+
+    .calendar-scroll {
+      overflow-x: auto;
+    }
+
+    .calendar {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      min-width: 630px;
+      gap: 1px;
+      padding: 1px;
+      background: #dfe5ea;
+    }
+
+    .weekday {
+      padding: 8px;
+      background: #eef2f5;
+      text-align: center;
+      font-size: 13px;
+    }
+
+    .day {
+      min-height: 86px;
+      padding: 7px;
+      background: white;
+    }
+
+    .empty {
+      background: #f7f9fa;
+    }
+
+    .day-number {
+      margin-bottom: 6px;
+      text-align: right;
+      font-size: 13px;
+    }
+
+    .shift {
+      margin-top: 4px;
+      padding: 5px 6px;
+      border-radius: 3px;
+      background: #417486;
+      color: white;
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .shortage {
+      background: #fbe5d5;
+      color: #733515;
+    }
+  </style>
+</head>
+
+<body>
+  <header><h1>Darbo grafikas</h1></header>
+
+  <main>
+    <form id="companyLoginForm">
+  <h2>Pasirink įmonę</h2>
+  <button type="submit" value="coffeepoint-demo-key">CoffeePoint</button>
+  <button type="submit" value="urbanstyle-demo-key">UrbanStyle</button>
+  <p id="companyLoginStatus" role="status"></p>
+</form>
+
+<div id="companyWorkspace" hidden>
+  <button id="companyLogout" type="button">Atsijungti</button>
+    <p id="activeCompany"></p>
+    <details>
+  <summary>Darbuotojai</summary>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Vardas</th>
+        <th>Pareigos</th>
+        <th>Etatas</th>
+        <th>Mėnesio norma</th>
+        <th>Būsena</th>
+      </tr>
+    </thead>
+    <tbody id="employeesBody"></tbody>
+  </table>
+</details>
+
+<details id="availabilityView">
+  <summary>Visų darbuotojų prieinamumas</summary>
+  <p id="availabilityMonth" role="status"></p>
+  <div class="calendar-scroll">
+    <div class="calendar" id="availabilityCalendar"></div>
+  </div>
+</details>
+    <form id="availabilityForm">
+  <label>Darbuotojas <select name="employeeId" required></select></label>
+  <label>Data <input type="date" name="date" required></label>
+  <label>Nuo <input type="time" name="from"></label>
+  <label>Iki <input type="time" name="to"></label>
+  <label><input type="checkbox" name="dayOff"> Laisva diena</label>
+  <button type="submit">Išsaugoti</button>
+  <p id="availabilityStatus" role="status"></p>
+</form>
+    <div class="toolbar">
+      <h2 id="monthTitle"></h2>
+      <div>
+        <button id="previous" aria-label="Ankstesnis mėnuo">‹</button>
+        <button id="next" aria-label="Kitas mėnuo">›</button>
+        <label>10:00–13:00
+  <input id="morningRequired" type="number" min="0" step="1" required>
+</label>
+<label>13:00–16:00
+  <input id="afternoonRequired" type="number" min="0" step="1" required>
+</label>
+<label>16:00–20:00
+  <input id="eveningRequired" type="number" min="0" step="1" required>
+</label>
+        <button id="generate">Generuoti grafiką</button>
+      </div>
+    </div>
+
+    <div class="calendar-scroll">
+      <div class="calendar" id="calendar"></div>
+    </div>
+
+    <p id="status" role="status"></p>
+    <section id="monthlyHoursSection" hidden>
+  <h2>Mėnesio valandų suvestinė</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Darbuotojas</th>
+        <th>Etatas</th>
+        <th>Mėnesio norma</th>
+        <th>Paskirta</th>
+        <th>Atitikimas</th>
+      </tr>
+    </thead>
+    <tbody id="monthlyHoursBody"></tbody>
+  </table>
+</section>
+</div>
+  </main>
+
+  <script>
+    const demoKey = sessionStorage.getItem('companyKey');
+const companyLoginForm = document.getElementById('companyLoginForm');
+const companyLoginStatus = document.getElementById('companyLoginStatus');
+const companyWorkspace = document.getElementById('companyWorkspace');
+
+companyLoginForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  const key = event.submitter?.value;
+  if (!key) {
+    companyLoginStatus.textContent = 'Įvesk įmonės raktą.';
+    return;
+  }
+
+  companyLoginStatus.textContent = 'Jungiamasi…';
+
+  try {
+    const response = await fetch('/api/company', {
+      headers: { 'X-Demo-Key': key }
+    });
+
+    if (!response.ok) {
+      companyLoginStatus.textContent = response.status === 401
+        ? 'Neteisingas įmonės raktas.'
+        : 'Nepavyko patikrinti įmonės rakto.';
+      return;
+    }
+
+    sessionStorage.setItem('companyKey', key);
+    location.reload();
+  } catch {
+    companyLoginStatus.textContent = 'Nepavyko prisijungti prie serverio.';
+  }
+});
+
+document.getElementById('companyLogout').onclick = () => {
+  sessionStorage.removeItem('companyKey');
+  location.reload();
+};
+    const calendar = document.getElementById('calendar');
+    const monthTitle = document.getElementById('monthTitle');
+    const status = document.getElementById('status');
+
+    // Pradedame nuo lapkričio, nes jame yra tavo demonstracinė pamaina.
+    let visibleMonth = new Date(2026, 10, 1);
+    let shifts = [];
+    let coverage = [];
+
+    function renderCalendar() {
+      calendar.replaceChildren();
+
+      const year = visibleMonth.getFullYear();
+      const month = visibleMonth.getMonth();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const monthText = String(month + 1).padStart(2, '0');
+
+      monthTitle.textContent = visibleMonth.toLocaleDateString('lt-LT', {
+        year: 'numeric',
+        month: 'long'
+      });
+
+      for (const name of ['Pr', 'An', 'Tr', 'Kt', 'Pn', 'Št', 'Sk']) {
+        const label = document.createElement('div');
+        label.className = 'weekday';
+        label.textContent = name;
+        calendar.append(label);
+      }
+
+      // getDay() sekmadieniui duoda 0. Ši formulė padeda savaitę pradėti nuo pirmadienio.
+      const emptyCells = (visibleMonth.getDay() + 6) % 7;
+
+      for (let i = 0; i < emptyCells; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'day empty';
+        calendar.append(cell);
+      }
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dayText = String(day).padStart(2, '0');
+        const date = `${year}-${monthText}-${dayText}`;
+
+        const cell = document.createElement('div');
+        cell.className = 'day';
+
+        const dayNumber = document.createElement('div');
+        dayNumber.className = 'day-number';
+        dayNumber.textContent = day;
+        cell.append(dayNumber);
+
+        // Prie langelio pridedame visas pamainas, kurių data sutampa.
+        for (const shift of shifts) {
+          if (shift.date === date) {
+            const item = document.createElement('div');
+            item.className = 'shift';
+            item.textContent = `${shift.start}–${shift.end} ${shift.name}`;
+            cell.append(item);
+          }
+        }
+
+        for (const interval of coverage) {
+          if (interval.date === date && interval.missingEmployees > 0) {
+            const item = document.createElement('div');
+            item.className = 'shift shortage';
+            item.textContent =
+              `${interval.start}–${interval.end} · Trūksta ${interval.missingEmployees}`;
+            cell.append(item);
+          }
+        }
+
+        calendar.append(cell);
+      }
+
+      // Užpildome likusius paskutinės savaitės langelius.
+      const trailingCells = (7 - (emptyCells + daysInMonth) % 7) % 7;
+
+      for (let i = 0; i < trailingCells; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'day empty';
+        calendar.append(cell);
+      }
+    }
+    const availabilityForm = document.getElementById('availabilityForm');
+const availabilityStatus = document.getElementById('availabilityStatus');
+
+availabilityForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const fields = availabilityForm.elements;
+
+  try {
+    const response = await fetch('/api/availability', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Demo-Key': demoKey
+      },
+      body: JSON.stringify({
+        employeeId: Number(fields.employeeId.value),
+        date: fields.date.value,
+        from: fields.from.value,
+        to: fields.to.value,
+        dayOff: fields.dayOff.checked
+      })
+    });
+
+    const result = await response.json();
+    availabilityStatus.textContent = response.ok ? result.message : result.error;
+    if (response.ok) loadAvailabilityCalendar();
+  } catch {
+    availabilityStatus.textContent = 'Nepavyko išsaugoti prieinamumo.';
+  }
+});
+    async function loadActiveCompany() {
+  const label = document.getElementById('activeCompany');
+
+  try {
+    const response = await fetch('/api/company', {
+      headers: { 'X-Demo-Key': demoKey }
+    });
+
+    if (!response.ok) {
+      label.textContent = 'Nepavyko užkrauti aktyvios įmonės.';
+      return;
+    }
+
+    const result = await response.json();
+    const select = document.querySelector('#availabilityForm select');
+const table = document.getElementById('employeesBody');
+const roles = {
+  EMPLOYEE: 'Darbuotojas',
+  MANAGER: 'Vadovas',
+  DEPUTY_MANAGER: 'Pavaduotojas'
+};
+
+select.replaceChildren();
+table.replaceChildren();
+
+for (const employee of result.employees) {
+  const active = Number(employee.is_active) === 1;
+
+  if (active) {
+    select.add(new Option(employee.name, employee.id));
+  }
+
+  const row = table.insertRow();
+  const values = [
+    employee.id,
+    employee.name,
+    roles[employee.role] ?? employee.role,
+    Number(employee.employment_fraction),
+    `${Number(employee.target_monthly_hours)} val.`,
+    active ? 'Aktyvus' : 'Neaktyvus'
+  ];
+
+  for (const value of values) {
+    row.insertCell().textContent = value;
+  }
+  if (active) {
+  const fractionCell = row.cells[3];
+  const hoursCell = row.cells[4];
+  const fractionSelect = document.createElement('select');
+  fractionSelect.setAttribute('aria-label', `${employee.name} etatas`);
+
+  for (const fraction of [0.25, 0.5, 0.75, 1]) {
+    fractionSelect.add(new Option(fraction.toLocaleString('lt-LT'), fraction));
+  }
+
+  fractionSelect.value = String(Number(employee.employment_fraction));
+
+  const saveButton = document.createElement('button');
+  saveButton.type = 'button';
+  saveButton.textContent = 'Išsaugoti';
+
+  const message = document.createElement('span');
+  message.setAttribute('role', 'status');
+  fractionCell.replaceChildren(fractionSelect, ' ', saveButton, ' ', message);
+
+  saveButton.onclick = async () => {
+    saveButton.disabled = true;
+    fractionSelect.disabled = true;
+    message.textContent = 'Saugoma…';
+
+    try {
+      const response = await fetch(`/api/employees/${employee.id}/employment`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Demo-Key': demoKey
+        },
+        body: JSON.stringify({
+          employmentFraction: Number(fractionSelect.value)
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        message.textContent = result.error;
+        return;
+      }
+
+      hoursCell.textContent = `${result.targetMonthlyHours} val.`;
+      message.textContent = 'Išsaugota.';
+    } catch {
+      message.textContent = 'Nepavyko išsaugoti etato.';
+    } finally {
+      saveButton.disabled = false;
+      fractionSelect.disabled = false;
+    }
+  };
+}
+}
+    label.textContent = `Aktyvi įmonė: ${result.companyName}`;
+    companyLoginForm.hidden = true;
+companyWorkspace.hidden = false;
+  } catch {
+    label.textContent = 'Nepavyko prisijungti prie serverio.';
+  }
+}
+
+if (demoKey) loadActiveCompany();
+
+const availabilityView = document.getElementById('availabilityView');
+
+async function loadAvailabilityCalendar() {
+  if (!availabilityView.open) return;
+
+  const calendar = document.getElementById('availabilityCalendar');
+  const label = document.getElementById('availabilityMonth');
+  const displayedMonth = visibleMonth;
+  const year = displayedMonth.getFullYear();
+  const month = displayedMonth.getMonth();
+  const monthKey = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+  calendar.replaceChildren();
+  label.textContent = 'Įkeliama…';
+
+  try {
+    const response = await fetch(`/api/availability?month=${monthKey}`, {
+      headers: { 'X-Demo-Key': demoKey }
+    });
+
+    if (!response.ok) throw new Error();
+
+    const { entries } = await response.json();
+    if (displayedMonth !== visibleMonth || !availabilityView.open) return;
+
+    label.textContent = displayedMonth.toLocaleDateString('lt-LT', {
+      year: 'numeric',
+      month: 'long'
+    });
+
+    for (const name of ['Pr', 'An', 'Tr', 'Kt', 'Pn', 'Št', 'Sk']) {
+      const heading = document.createElement('div');
+      heading.className = 'weekday';
+      heading.textContent = name;
+      calendar.append(heading);
+    }
+
+    const offset = (displayedMonth.getDay() + 6) % 7;
+
+    for (let i = 0; i < offset; i++) {
+      const cell = document.createElement('div');
+      cell.className = 'day empty';
+      calendar.append(cell);
+    }
+
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = `${monthKey}-${String(day).padStart(2, '0')}`;
+      const cell = document.createElement('div');
+      cell.className = 'day';
+
+      const number = document.createElement('div');
+      number.className = 'day-number';
+      number.textContent = day;
+      cell.append(number);
+
+      for (const entry of entries) {
+        if (entry.date !== date) continue;
+
+        const line = document.createElement('div');
+        const dayOff = Number(entry.dayOff) === 1;
+        line.className = dayOff ? 'shift shortage' : 'shift';
+
+        const time = entry.availableFrom && entry.availableTo
+          ? `${entry.availableFrom}–${entry.availableTo}`
+          : 'Gali dirbti bet kuriuo metu';
+
+        line.textContent = `${entry.name} · ${dayOff ? 'Negali dirbti' : time}`;
+        cell.append(line);
+      }
+
+      calendar.append(cell);
+    }
+  } catch {
+    if (displayedMonth === visibleMonth) {
+      label.textContent = 'Nepavyko įkelti prieinamumo.';
+    }
+  }
+}
+
+availabilityView.addEventListener('toggle', loadAvailabilityCalendar);
+
+    const monthlyHoursSection = document.getElementById('monthlyHoursSection');
+const monthlyHoursBody = document.getElementById('monthlyHoursBody');
+
+function formatHours(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} val. ${rest} min.` : `${hours} val.`;
+}
+
+function renderMonthlyHours(employees) {
+  monthlyHoursBody.replaceChildren();
+
+  for (const employee of employees) {
+    const difference = employee.differenceMinutes;
+    let status = 'Atitinka normą';
+
+    if (difference < 0) {
+      status = `Trūksta ${formatHours(-difference)}`;
+    } else if (difference > 0) {
+      status = `Viršija ${formatHours(difference)}`;
+    }
+
+    const row = monthlyHoursBody.insertRow();
+    for (const value of [
+      employee.name,
+      employee.employmentFraction.toLocaleString('lt-LT'),
+      formatHours(employee.targetMinutes),
+      formatHours(employee.assignedMinutes),
+      status
+    ]) {
+      row.insertCell().textContent = value;
+    }
+  }
+
+  monthlyHoursSection.hidden = false;
+}
+
+    function changeMonth(offset) {
+      monthlyHoursSection.hidden = true;
+      const year = visibleMonth.getFullYear();
+      const month = visibleMonth.getMonth();
+      visibleMonth = new Date(year, month + offset, 1);
+      renderCalendar();
+      loadAvailabilityCalendar();
+    }
+
+    document.getElementById('previous').onclick = () => changeMonth(-1);
+    document.getElementById('next').onclick = () => changeMonth(1);
+
+    document.getElementById('generate').onclick = async function () {
+      monthlyHoursSection.hidden = true;
+      const requestedMonth = visibleMonth;
+      status.textContent = 'Generuojamas grafikas…';
+
+      try {
+        const year = visibleMonth.getFullYear();
+const month = String(visibleMonth.getMonth() + 1).padStart(2, '0');
+
+const params = new URLSearchParams({ month: `${year}-${month}` });
+
+for (const id of ['morningRequired', 'afternoonRequired', 'eveningRequired']) {
+  const field = document.getElementById(id);
+
+  if (!field.reportValidity()) {
+    status.textContent = 'Įrašyk darbuotojų skaičių kiekvienam intervalui.';
+    return;
+  }
+
+  params.set(id, field.value);
+}
+
+const response = await fetch(`/api/schedule?${params}`, {
+  headers: { 'X-Demo-Key': demoKey }
+});
+
+        if (!response.ok) {
+          throw new Error('Serveris negrąžino grafiko.');
+        }
+
+        const result = await response.json();
+        if (requestedMonth !== visibleMonth) return;
+        shifts = result.shifts.sort((first, second) => {
+  return first.start.localeCompare(second.start)
+    || first.end.localeCompare(second.end);
+});
+        coverage = result.schedule;
+        renderMonthlyHours(result.monthlyHours);
+        renderCalendar();
+
+        status.textContent = shifts.length ? '' : 'Pamainų nepaskirta.';
+      } catch {
+        status.textContent = 'Nepavyko sugeneruoti grafiko.';
+      }
+    };
+
+    renderCalendar();
+  </script>
+</body>
+</html>
